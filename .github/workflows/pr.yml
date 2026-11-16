@@ -37,7 +37,7 @@ jobs:
                 <repositories>
                   <repository>
                     <id>github</id>
-                    <url>https://maven.pkg.github.com/laasilva/dracolich-ai-api</url>
+                    <url>https://maven.pkg.github.com/ixian-works/dracolich-ai-api</url>
                     <snapshots>
                       <enabled>true</enabled>
                     </snapshots>

@@ -255,6 +255,6 @@ There are none yet — test dependencies are declared but no tests are written.
 
 ---
 
-Part of the [Dracolich](https://github.com/laasilva?tab=repositories&q=dracolich) platform. For the
+Part of the [Dracolich](https://github.com/orgs/Ixian-Works/repositories?q=dracolich) platform. For the
 cross-repo picture — service topology, release pipeline, shared conventions — see the workspace guide
 at `~/Dev/Dracolich/CLAUDE.md`.
