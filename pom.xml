@@ -28,18 +28,18 @@
     <distributionManagement>
         <repository>
             <id>github</id>
-            <url>https://maven.pkg.github.com/laasilva/dracolich-ai-api</url>
+            <url>https://maven.pkg.github.com/ixian-works/dracolich-ai-api</url>
         </repository>
     </distributionManagement>
 
     <repositories>
         <repository>
             <id>github</id>
-            <url>https://maven.pkg.github.com/laasilva/dracolich-ai-api</url>
+            <url>https://maven.pkg.github.com/ixian-works/dracolich-ai-api</url>
         </repository>
         <repository>
             <id>github-mtg-library</id>
-            <url>https://maven.pkg.github.com/laasilva/dracolich-mtg-library-api</url>
+            <url>https://maven.pkg.github.com/ixian-works/dracolich-mtg-library-api</url>
         </repository>
     </repositories>
 
