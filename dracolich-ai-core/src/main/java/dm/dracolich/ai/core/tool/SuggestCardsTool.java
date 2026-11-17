@@ -8,6 +8,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -17,7 +19,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class SuggestCardsTool {
 
-    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     private final SessionRepository sessionRepository;
 
@@ -33,7 +35,7 @@ public class SuggestCardsTool {
     ) {
         List<CardSuggestion> suggestions;
         try {
-            suggestions = MAPPER.readValue(suggestionsJson, new com.fasterxml.jackson.core.type.TypeReference<List<CardSuggestion>>() {});
+            suggestions = MAPPER.readValue(suggestionsJson, new TypeReference<List<CardSuggestion>>() {});
         } catch (Exception e) {
             log.warn("Failed to parse suggestions JSON: {}", e.getMessage());
             return "Error: invalid suggestions format. Send a JSON array of objects with cardName, category, reason, synergyScore.";

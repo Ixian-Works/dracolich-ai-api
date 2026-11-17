@@ -1,5 +1,6 @@
 package dm.dracolich.ai.core.service;
 
+import com.anthropic.models.messages.StopReason;
 import dm.dracolich.ai.client.mtg.MtgLibraryClient;
 import dm.dracolich.ai.datasource.entity.ChatMessageEntity;
 import dm.dracolich.ai.datasource.entity.DeckCardEntity;
@@ -33,6 +34,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -40,6 +42,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class AgentServiceImpl implements AgentService {
+
+    /** Anthropic stop reasons, as Spring AI reports them in a generation's finish reason. */
+    private static final String STOP_REFUSAL = StopReason.REFUSAL.toString();
+    private static final String STOP_MAX_TOKENS = StopReason.MAX_TOKENS.toString();
 
     private final SessionRepository sessionRepository;
     private final MtgLibraryClient mtgClient;
@@ -106,9 +112,10 @@ public class AgentServiceImpl implements AgentService {
                     StringBuilder fullResponse = new StringBuilder();
                     AtomicReference<Long> inputTokens = new AtomicReference<>();
                     AtomicReference<Long> outputTokens = new AtomicReference<>();
+                    AtomicBoolean declined = new AtomicBoolean();
 
                     return responseStream
-                            .mapNotNull(chatResponse -> {
+                            .<String>handle((chatResponse, sink) -> {
                                 if (chatResponse.getMetadata() != null
                                         && chatResponse.getMetadata().getUsage() != null) {
                                     Usage usage = chatResponse.getMetadata().getUsage();
@@ -120,14 +127,27 @@ public class AgentServiceImpl implements AgentService {
                                     }
                                 }
 
+                                String stopReason = stopReasonOf(chatResponse);
+                                if (STOP_REFUSAL.equalsIgnoreCase(stopReason)) {
+                                    log.warn("The model declined the request for session {}", sessionId);
+                                    declined.set(true);
+                                    sink.error(ChatFailures.refusal());
+                                    return;
+                                }
+                                if (STOP_MAX_TOKENS.equalsIgnoreCase(stopReason)) {
+                                    log.warn("The response for session {} stopped at max-tokens and may be cut short",
+                                            sessionId);
+                                }
+
                                 if (chatResponse.getResult() != null
                                         && chatResponse.getResult().getOutput() != null
                                         && chatResponse.getResult().getOutput().getText() != null) {
                                     String text = chatResponse.getResult().getOutput().getText();
-                                    fullResponse.append(text);
-                                    return text;
+                                    if (!text.isEmpty()) {
+                                        fullResponse.append(text);
+                                        sink.next(text);
+                                    }
                                 }
-                                return null;
                             })
                             .doOnComplete(() ->
                                 persistMessages(sessionId, userMessage, fullResponse.toString(),
@@ -136,17 +156,16 @@ public class AgentServiceImpl implements AgentService {
                                     .subscribe()
                             )
                             .onErrorResume(e -> {
+                                ResponseException failure = ChatFailures.from(e);
                                 log.error("Chat streaming error for session {}: {}", sessionId, e.getMessage());
-                                if (!fullResponse.isEmpty()) {
+                                // A declined turn is not part of the conversation, so it is not kept.
+                                if (!declined.get() && !fullResponse.isEmpty()) {
                                     persistMessages(sessionId, userMessage, fullResponse.toString(),
                                             inputTokens.get(), outputTokens.get())
                                         .subscribeOn(Schedulers.boundedElastic())
                                         .subscribe();
                                 }
-                                return Flux.error(new ResponseException(
-                                        ErrorCodes.DMD028.format(e.getMessage()),
-                                        List.of(new ApiError(ErrorCodes.DMD028)),
-                                        HttpStatus.INTERNAL_SERVER_ERROR));
+                                return Flux.error(failure);
                             });
                 });
     }
@@ -261,6 +280,13 @@ public class AgentServiceImpl implements AgentService {
                     });
                 })
                 .map(this::toSessionDto);
+    }
+
+    private static String stopReasonOf(ChatResponse chatResponse) {
+        if (chatResponse.getResult() == null || chatResponse.getResult().getMetadata() == null) {
+            return null;
+        }
+        return chatResponse.getResult().getMetadata().getFinishReason();
     }
 
     private List<Message> buildMessages(SessionEntity session, String userMessage) {

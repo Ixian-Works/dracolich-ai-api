@@ -37,6 +37,9 @@ Swagger UI: `http://<host>/dracolich/ai/api/v0/swagger-ui.html`.
 | `MONGODB_URI` | _(required)_ | MongoDB connection URI |
 | `MONGODB_DATABASE` | _(required)_ | Database name |
 | `ANTHROPIC_API_KEY` | _(required)_ | Anthropic API key |
+| `ANTHROPIC_MODEL` | _(required)_ | Model id. No default: each environment names its model |
+| `ANTHROPIC_MAX_TOKENS` | `8192` | Ceiling for one response. Thinking counts toward it |
+| `ANTHROPIC_EFFORT` | `low` | How much the model thinks and writes: `low`, `medium`, `high`, `xhigh` or `max` |
 | `DRACOLICH_MTG_LIBRARY_API_BASE_URL` | `http://localhost:8080/dracolich/mtg-library/api/v0` | MTG Library API base URL |
 | `CORS_ALLOWED_ORIGINS` | _(empty)_ | Allowed CORS origins |
 | `SPRING_PROFILES_ACTIVE` | `dev` | Profile name only — no profile-specific config file exists |
@@ -188,6 +191,9 @@ All errors are returned in the standard `DmdResponse` envelope via forge's `Cont
 | DMD027 | 500 | Failed to persist card suggestions |
 | DMD028 | 500 | Chat streaming error |
 | DMD029 | 503 | MTG Library API unavailable |
+| DMD037 | 422 | The model declined the request |
+| DMD038 | 429 | Anthropic rate limit reached. Worth retrying shortly |
+| DMD039 | 503 | Anthropic API overloaded. Worth retrying shortly |
 
 ## Module Structure
 
@@ -207,7 +213,7 @@ dracolich-ai-api/
 │   └── src/main/java/
 │       └── dm/dracolich/ai/dto/
 │           ├── enums/             # SessionType, MessageRole
-│           ├── error/             # ErrorCodes (DMD023-DMD029)
+│           ├── error/             # ErrorCodes (DMD023-DMD029, DMD037-DMD039)
 │           ├── records/           # ChatRequest, SessionCreateRequest
 │           └── *.java             # SessionDto, ChatMessageDto, CardSuggestionDto
 │
@@ -227,7 +233,7 @@ dracolich-ai-api/
 ├── dracolich-ai-core/             # Business logic + AI
 │   └── src/main/java/
 │       └── dm/dracolich/ai/core/
-│           ├── config/            # AnthropicConfig (model, tokens, temperature)
+│           ├── config/            # AnthropicConfig and AnthropicProperties (model, tokens, effort)
 │           ├── service/           # AgentService interface + implementation
 │           └── tool/              # CardSearchTool, SuggestCardsTool, ReportIssuesTool
 │
@@ -242,7 +248,7 @@ dracolich-ai-api/
 
 - **Java 25** with preview features
 - **Spring Boot 4.0** with WebFlux (reactive)
-- **Spring AI 1.0.0-M6** with Anthropic Claude (Sonnet)
+- **Spring AI 2.0.2** with Anthropic Claude, on the official Anthropic Java SDK. The model is set per environment
 - **MongoDB** with Reactive Streams
 - **MapStruct 1.6.3** for entity-DTO mapping
 - **SpringDoc OpenAPI 3.0.1** for Swagger UI
