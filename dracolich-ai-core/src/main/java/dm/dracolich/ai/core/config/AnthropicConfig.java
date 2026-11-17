@@ -5,39 +5,42 @@ import dm.dracolich.ai.core.tool.ReportIssuesTool;
 import dm.dracolich.ai.core.tool.SuggestCardsTool;
 import org.springframework.ai.anthropic.AnthropicChatModel;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
-import org.springframework.ai.anthropic.api.AnthropicApi;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
+@EnableConfigurationProperties(AnthropicProperties.class)
 public class AnthropicConfig {
 
-    @Value("${spring.ai.anthropic.api-key}")
-    private String apiKey;
-
-    @Value("${spring.ai.anthropic.chat.options.model:claude-sonnet-4-20250514}")
-    private String model;
-
-    @Value("${spring.ai.anthropic.chat.options.max-tokens:4096}")
-    private int maxTokens;
-
-    @Value("${spring.ai.anthropic.chat.options.temperature:0.7}")
-    private double temperature;
-
+    /**
+     * The options every chat call uses.
+     *
+     * <p>No sampling parameter is set: current Claude models reject them. Thinking is
+     * left to the model's default, which is adaptive, and {@code effort} is the one
+     * control over how much it thinks and writes. Thinking counts toward
+     * {@code maxTokens}.</p>
+     */
     @Bean
-    public AnthropicApi anthropicApi() {
-        return new AnthropicApi(apiKey);
+    public AnthropicChatOptions anthropicChatOptions(AnthropicProperties properties) {
+        properties.validate();
+        AnthropicChatOptions.Builder options = AnthropicChatOptions.builder()
+                .apiKey(properties.apiKey())
+                .model(properties.chat().model())
+                .maxTokens(properties.chat().maxTokens())
+                .effort(properties.effortLevel());
+        if (properties.baseUrl() != null && !properties.baseUrl().isBlank()) {
+            options.baseUrl(properties.baseUrl());
+        }
+        return options.build();
     }
 
     @Bean
-    public AnthropicChatModel anthropicChatModel(AnthropicApi api) {
-        return new AnthropicChatModel(api, AnthropicChatOptions.builder()
-                .model(model)
-                .maxTokens(maxTokens)
-                .temperature(temperature)
-                .build());
+    public AnthropicChatModel anthropicChatModel(AnthropicChatOptions options) {
+        return AnthropicChatModel.builder()
+                .options(options)
+                .build();
     }
 
     @Bean

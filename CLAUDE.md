@@ -1,6 +1,7 @@
 # dracolich-ai-api
 
-AI deck building assistant for MTG. Uses Spring AI 1.0.0-M6 + Anthropic Claude (Sonnet).
+AI deck building assistant for MTG. Uses Spring AI 2.0.2 + Anthropic Claude. The model is named per
+environment through `ANTHROPIC_MODEL`; there is no default in the code or in `application.yml`.
 
 ## Build & Run
 
@@ -18,8 +19,8 @@ target; for pure code work `mvn clean install` is verification enough.
 Running it locally is expected when developing a feature or chasing a bug here. Create an
 uncommitted `dracolich-ai-web/src/main/resources/application-local.yml` (gitignored — never commit
 local config) and run with `SPRING_PROFILES_ACTIVE=local`; `application-dev.yml.example` is a
-starting point. It must supply `spring.mongodb.uri`, `spring.mongodb.database` and
-`spring.ai.anthropic.api-key`, which have no defaults. The service listens on port 8080 with actuator
+starting point. It must supply `spring.mongodb.uri`, `spring.mongodb.database`,
+`spring.ai.anthropic.api-key` and `spring.ai.anthropic.chat.model`, which have no defaults. The service listens on port 8080 with actuator
 on 7980 — override `server.port` if another Dracolich service holds 8080.
 
 ## Module Structure
@@ -70,6 +71,9 @@ Uses forge's `ControllerAdvice` (registered via `@ComponentScan` on `dm.dracolic
 | DMD027 | Failed to persist card suggestions |
 | DMD028 | Chat streaming error |
 | DMD029 | MTG Library API unavailable |
+| DMD037 | The model declined the request (`stop_reason: "refusal"`). HTTP 422 |
+| DMD038 | Anthropic rate limit reached. HTTP 429 |
+| DMD039 | Anthropic API overloaded (status 529). HTTP 503 |
 
 All service methods use `switchIfEmpty(Mono.error(notFound(...)))` for 404s. Tools wrapped in try-catch — return descriptive error strings on failure instead of crashing.
 
@@ -99,15 +103,18 @@ Token usage is logged at INFO level and persisted on `ChatMessageEntity` (per-me
 - **Streaming**: Uses `.stream().chatResponse()` (not `.content()`) to capture token usage from ChatResponse metadata
 - **Tool execution**: All tools use `.toFuture().join()` instead of `.block()` — Reactor rejects `.block()` on Netty event loop threads during streaming
 - **DmdResponse unwrapping**: `MtgLibraryClient` deserializes to `DmdResponse<T>` via `ParameterizedTypeReference` then extracts `.getPayload()`. Never deserialize directly to DTO.
-- **Jackson 2/3 split**: Spring Boot 4 uses Jackson 3 (`tools.jackson`), Spring AI uses Jackson 2 (`com.fasterxml.jackson`). WebClient codecs use `JacksonJsonDecoder` (Jackson 3). Tool internals use static Jackson 2 ObjectMapper.
-- **`SuggestCardsTool` param**: Accepts `suggestionsJson` as String, not `List<CardSuggestion>` — Spring AI can't deserialize generic List of records in tool params.
+- **Jackson 3 everywhere in our code**: Spring Boot 4 and Spring AI 2 both use Jackson 3 (`tools.jackson`), and so do the tools. Jackson 2 (`com.fasterxml.jackson.databind`) is still on the classpath only because the Anthropic Java SDK and `jjwt` depend on it; do not use it in this service.
+- **Model settings** (`AnthropicProperties`, prefix `spring.ai.anthropic`): `chat.model` (required), `chat.max-tokens` (8192) and `chat.effort` (`low`). No sampling parameter is sent, because current Claude models reject `temperature`, `top_p` and `top_k`; the service refuses to start if one is configured. Thinking is left to the model's default (adaptive), counts toward `max-tokens`, and is steered only by `effort`.
+- **Stop reasons**: a response that ends with `refusal` fails the stream with DMD037 and is not saved to the chat history; one that ends with `max_tokens` is logged as possibly cut short.
+- **Tool loop**: `ChatClient` registers Spring AI's `ToolCallingAdvisor` on its own and that advisor runs the tools. Token usage is summed across every model call in a turn.
+- **`SuggestCardsTool` param**: Accepts `suggestionsJson` as String, not `List<CardSuggestion>` — Spring AI 1.0.0-M6 couldn't deserialize a generic List of records in tool params. Not re-tested on 2.0.
 - **`PageRecord` content**: Returns raw type (type erasure), items are `LinkedHashMap` at runtime. `CardSearchTool` uses `ObjectMapper.convertValue()` to map to `CardDto`.
 
 ## Swagger UI
 
 Available at: `http://<host>/dracolich/ai/api/v0/swagger-ui.html`
 
-Required fix: explicit `swagger-annotations:2.2.41` (non-jakarta) dependency to match swagger-core-jakarta version. Spring AI pulls in 2.2.25 transitively which lacks `$dynamicRef()`.
+Required fix: explicit `swagger-annotations:2.2.41` (non-jakarta) dependency to match swagger-core-jakarta version. Spring AI 1.0.0-M6 pulled in 2.2.25, which lacks `$dynamicRef()`; Spring AI 2.0.2 pulls in 2.2.50, and the explicit pin still decides the version. Whether the pin can go was not tested.
 
 ## Deferred Items — launch blockers
 

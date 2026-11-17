@@ -9,6 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -18,7 +20,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ReportIssuesTool {
 
-    private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     private final SessionRepository sessionRepository;
 
@@ -35,7 +37,7 @@ public class ReportIssuesTool {
     ) {
         List<Issue> issues;
         try {
-            issues = MAPPER.readValue(issuesJson, new com.fasterxml.jackson.core.type.TypeReference<List<Issue>>() {});
+            issues = MAPPER.readValue(issuesJson, new TypeReference<List<Issue>>() {});
         } catch (Exception e) {
             log.warn("Failed to parse issues JSON: {}", e.getMessage());
             return "Error: invalid issues format. Send a JSON array of objects with topic, severity, reason.";
