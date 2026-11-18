@@ -1,5 +1,8 @@
 package dm.dracolich.ai.core.service;
 
+import dm.dracolich.ai.dto.records.DeckCardRequest;
+import dm.dracolich.mtgLibrary.dto.CardDto;
+import dm.dracolich.mtgLibrary.dto.records.CardIdentifier;
 import com.anthropic.models.messages.StopReason;
 import dm.dracolich.ai.client.mtg.MtgLibraryClient;
 import dm.dracolich.ai.datasource.entity.ChatMessageEntity;
@@ -217,69 +220,73 @@ public class AgentServiceImpl implements AgentService {
                 });
     }
 
+    /**
+     * Opens an analysis session with the deck's cards resolved in one request to the library per
+     * hundred cards. A card the library doesn't know is logged and left out, and the session still
+     * opens. The commander's colour identity comes from the same answer.
+     */
     private Mono<SessionDto> createAnalysisSession(SessionCreateRequest request) {
-        List<Mono<DeckCardEntity>> cardMonos = request.deckList().stream()
-                .map(req -> mtgClient.fetchCardByName(req.cardName())
-                        .map(card -> DeckCardEntity.builder()
-                                .cardId(card.getId())
-                                .name(card.getName())
-                                .category(Boolean.TRUE.equals(req.isCommander()) ? "Commander" : req.category())
-                                .quantity(req.quantity() != null ? req.quantity() : 1)
-                                .build())
-                        .onErrorResume(e -> {
-                            log.warn("Card not found during import: {}", req.cardName());
-                            return Mono.empty();
-                        }))
+        List<DeckCardRequest> requested = request.deckList();
+        List<CardIdentifier> identifiers = requested.stream()
+                .map(req -> CardIdentifier.byName(req.cardName() == null ? "" : req.cardName().trim()))
                 .toList();
 
-        return Flux.merge(cardMonos)
-                .collectList()
-                .flatMap(deckCards -> {
-                    DeckCardEntity commander = deckCards.stream()
-                            .filter(c -> "Commander".equals(c.getCategory()))
-                            .findFirst()
-                            .orElse(null);
-
-                    Mono<Set<String>> colorIdentityMono;
-                    if (commander != null) {
-                        colorIdentityMono = mtgClient.fetchCardById(commander.getCardId())
-                                .map(card -> {
-                                    if (card.getDefaultFace() != null &&
-                                            card.getDefaultFace().getGameplayProperty() != null &&
-                                            card.getDefaultFace().getGameplayProperty().getColorIdentity() != null) {
-                                        return card.getDefaultFace().getGameplayProperty().getColorIdentity()
-                                                .stream().map(Enum::name).collect(Collectors.toSet());
-                                    }
-                                    return Set.<String>of();
-                                })
-                                .onErrorResume(e -> {
-                                    log.warn("Failed to fetch color identity for commander: {}", e.getMessage());
-                                    return Mono.just(Set.<String>of());
-                                });
-                    } else {
-                        colorIdentityMono = Mono.just(Set.<String>of());
+        return mtgClient.resolveCards(identifiers)
+                .onErrorMap(e -> !(e instanceof ResponseException), e -> {
+                    log.error("Failed to resolve the deck's cards from the library: {}", e.getMessage());
+                    return new ResponseException(
+                            ErrorCodes.DMD029.getMessage(),
+                            List.of(new ApiError(ErrorCodes.DMD029)),
+                            HttpStatus.SERVICE_UNAVAILABLE);
+                })
+                .flatMap(found -> {
+                    List<DeckCardEntity> deckCards = new ArrayList<>();
+                    CardDto commanderCard = null;
+                    for (int i = 0; i < requested.size(); i++) {
+                        DeckCardRequest req = requested.get(i);
+                        CardDto card = found.get(i);
+                        if (card == null) {
+                            log.warn("Card not found during import: {}", req.cardName());
+                            continue;
+                        }
+                        boolean isCommander = Boolean.TRUE.equals(req.isCommander());
+                        if (isCommander && commanderCard == null) {
+                            commanderCard = card;
+                        }
+                        deckCards.add(DeckCardEntity.builder()
+                                .cardId(card.getId())
+                                .name(card.getName())
+                                .category(isCommander ? "Commander" : req.category())
+                                .quantity(req.quantity() != null ? req.quantity() : 1)
+                                .build());
                     }
 
-                    return colorIdentityMono.flatMap(colorIdentity -> {
-                        SessionEntity session = SessionEntity.builder()
-                                .userId(request.userId())
-                                .sessionType(SessionType.ANALYSIS)
-                                .format(request.format())
-                                .commanderName(commander != null ? commander.getName() : null)
-                                .commanderId(commander != null ? commander.getCardId() : null)
-                                .colorIdentity(colorIdentity)
-                                .deckList(new ArrayList<>(deckCards))
-                                .chatHistory(new ArrayList<>())
-                                .totalInputTokens(0L)
-                                .totalOutputTokens(0L)
-                                .createdAt(Instant.now())
-                                .updatedAt(Instant.now())
+                    SessionEntity session = SessionEntity.builder()
+                            .userId(request.userId())
+                            .sessionType(SessionType.ANALYSIS)
+                            .format(request.format())
+                            .commanderName(commanderCard != null ? commanderCard.getName() : null)
+                            .commanderId(commanderCard != null ? commanderCard.getId() : null)
+                            .colorIdentity(colorIdentity(commanderCard))
+                            .deckList(deckCards)
+                            .chatHistory(new ArrayList<>())
+                            .totalInputTokens(0L)
+                            .totalOutputTokens(0L)
+                            .createdAt(Instant.now())
+                            .updatedAt(Instant.now())
                             .build();
-
-                        return sessionRepository.save(session);
-                    });
+                    return sessionRepository.save(session);
                 })
                 .map(this::toSessionDto);
+    }
+
+    private static Set<String> colorIdentity(CardDto card) {
+        if (card == null || card.getDefaultFace() == null || card.getDefaultFace().getGameplayProperty() == null
+                || card.getDefaultFace().getGameplayProperty().getColorIdentity() == null) {
+            return Set.of();
+        }
+        return card.getDefaultFace().getGameplayProperty().getColorIdentity()
+                .stream().map(Enum::name).collect(Collectors.toSet());
     }
 
     private static String stopReasonOf(ChatResponse chatResponse) {
