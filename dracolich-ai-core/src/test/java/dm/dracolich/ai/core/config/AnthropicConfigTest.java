@@ -29,7 +29,7 @@ class AnthropicConfigTest {
     private final ApplicationContextRunner base = new ApplicationContextRunner()
             .withUserConfiguration(AnthropicConfig.class)
             .withBean(CardSearchTool.class, () -> new CardSearchTool(mock(MtgLibraryClient.class)))
-            .withBean(SuggestCardsTool.class, () -> new SuggestCardsTool(mock(SessionRepository.class)))
+            .withBean(SuggestCardsTool.class, () -> new SuggestCardsTool(mock(SessionRepository.class), mock(dm.dracolich.ai.client.mtg.MtgLibraryClient.class)))
             .withBean(ReportIssuesTool.class, () -> new ReportIssuesTool(mock(SessionRepository.class)))
             .withPropertyValues(
                     "spring.ai.anthropic.api-key=test-key",

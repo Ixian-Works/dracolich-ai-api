@@ -1,5 +1,8 @@
 package dm.dracolich.ai.core.tool;
 
+import dm.dracolich.ai.client.mtg.MtgLibraryClient;
+import dm.dracolich.mtgLibrary.dto.CardDto;
+import dm.dracolich.mtgLibrary.dto.records.CardIdentifier;
 import dm.dracolich.ai.datasource.entity.SessionEntity;
 import dm.dracolich.ai.datasource.repository.SessionRepository;
 import dm.dracolich.ai.dto.CardSuggestionDto;
@@ -22,6 +25,7 @@ public class SuggestCardsTool {
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     private final SessionRepository sessionRepository;
+    private final MtgLibraryClient library;
 
     @Tool(description = "Formally suggest cards for the user's deck. Call this whenever you recommend cards. " +
             "Pass a JSON array where each element has: cardName, category (Ramp, Removal, Card Draw, Win Condition, Creature, Land, etc.), " +
@@ -47,26 +51,51 @@ public class SuggestCardsTool {
                 return "Session not found: " + sessionId;
             }
 
-            List<CardSuggestionDto> dtos = suggestions.stream()
-                    .map(s -> CardSuggestionDto.builder()
-                            .cardName(s.cardName())
-                            .category(s.category())
-                            .reason(s.reason())
-                            .synergyScore(s.synergyScore())
-                            .topic(s.topic())
-                            .build())
-                    .toList();
+            // Every suggested name through the library in one call, then the deck's checks.
+            List<CardDto> found = library.resolveCards(suggestions.stream()
+                            .map(s -> CardIdentifier.byName(s.cardName() == null ? "" : s.cardName().trim()))
+                            .toList())
+                    .toFuture().join();
+            SuggestionCheck.Result result = SuggestionCheck.check(suggestions, found, session);
+            log.info("Suggestions for session {}: {} asked, {} kept, {} dropped {}.", sessionId,
+                    suggestions.size(), result.kept().size(), result.droppedCount(), counts(result));
 
-            session.setCardSuggestions(dtos);
+            session.setCardSuggestions(result.kept());
             sessionRepository.save(session).toFuture().join();
 
-            return "Suggested " + suggestions.size() + " cards: " +
-                    suggestions.stream().map(CardSuggestion::cardName).collect(Collectors.joining(", "));
+            return answer(result);
         } catch (Exception e) {
-            log.error("Failed to persist card suggestions for session {}: {}", sessionId, e.getMessage());
-            return "Failed to save suggestions. The cards were: " +
-                    suggestions.stream().map(CardSuggestion::cardName).collect(Collectors.joining(", "));
+            log.error("Failed to check or save card suggestions for session {}: {}", sessionId, e.getMessage());
+            return "Failed to save suggestions. Tell the player no suggestions could be checked this time.";
         }
+    }
+
+    /** What the model is told: what was kept, what was dropped and why, and what to say when nothing was kept. */
+    static String answer(SuggestionCheck.Result result) {
+        StringBuilder text = new StringBuilder();
+        if (result.kept().isEmpty()) {
+            text.append("None of these cards can be suggested for this deck. Tell the player in one sentence that ")
+                    .append("you found no suggestions that fit it, and do not name the dropped cards as suggestions.");
+        } else {
+            text.append("Suggested ").append(result.kept().size()).append(" cards: ")
+                    .append(result.kept().stream().map(CardSuggestionDto::getCardName).collect(Collectors.joining(", ")))
+                    .append('.');
+        }
+        result.dropped().forEach((reason, names) -> text.append(' ')
+                .append(switch (reason) {
+                    case NOT_A_CARD -> "Not cards in the library, dropped: ";
+                    case IN_DECK -> "Already in the deck, dropped: ";
+                    case NOT_LEGAL -> "Not legal in this format, dropped: ";
+                    case OFF_COLOUR -> "Outside the commander's colour identity, dropped: ";
+                })
+                .append(String.join(", ", names)).append('.'));
+        return text.toString();
+    }
+
+    private static String counts(SuggestionCheck.Result result) {
+        return result.dropped().entrySet().stream()
+                .map(e -> e.getKey() + "=" + e.getValue().size())
+                .collect(Collectors.joining(", ", "(", ")"));
     }
 
     public record CardSuggestion(

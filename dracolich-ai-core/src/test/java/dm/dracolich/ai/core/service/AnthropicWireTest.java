@@ -167,7 +167,7 @@ class AnthropicWireTest {
         new ApplicationContextRunner()
                 .withUserConfiguration(AnthropicConfig.class)
                 .withBean(CardSearchTool.class, () -> new CardSearchTool(mock(MtgLibraryClient.class)))
-                .withBean(SuggestCardsTool.class, () -> new SuggestCardsTool(sessionRepository))
+                .withBean(SuggestCardsTool.class, () -> new SuggestCardsTool(sessionRepository, org.mockito.Mockito.mock(dm.dracolich.ai.client.mtg.MtgLibraryClient.class)))
                 .withBean(ReportIssuesTool.class, () -> new ReportIssuesTool(sessionRepository))
                 .withPropertyValues(
                         "spring.ai.anthropic.api-key=test-key",

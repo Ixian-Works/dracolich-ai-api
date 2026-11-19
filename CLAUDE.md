@@ -51,7 +51,7 @@ Base path: `/dracolich/ai/api/v0/`
 | Tool | Purpose | Token Cost |
 |------|---------|------------|
 | `CardSearchTool` | Broad card search via mtg-library-api. Returns compact format (name, cost, type, truncated oracle text). Max 10 results | 1 API call to library |
-| `SuggestCardsTool` | Persists structured suggestions to session. Accepts JSON string param (Spring AI generic type workaround) | 0 API calls (just MongoDB) |
+| `SuggestCardsTool` | Checks the model's suggestions, then persists the ones kept to the session (`SuggestionCheck`): each name is resolved through the library, and a name that isn't a card, a card the deck already holds as many of as it may (one with a commander, four otherwise, never a basic land), one not legal in the session's format, or (with a commander or a colour identity) one outside it is dropped and the count logged. A kept suggestion carries `card_id`, `mana_cost`, `type_line` and `image_uri`. The model is told what was kept and dropped. Accepts JSON string param (Spring AI generic type workaround) | 1 API call to library (all names at once) |
 | `ReportIssuesTool` | Persists structured deck problems as `IssueDto` + `IssueSeverity` | 0 API calls (just MongoDB) |
 
 `DeckAnalysisTool` and `SynergyFinderTool` were both deleted for making N (or N+1) API calls per
@@ -91,7 +91,7 @@ Input validation: `@Valid` on controllers, `@NotNull`/`@NotBlank` on `SessionCre
 
 System prompt enforces max 1 `searchCards` call per response. Typical flow:
 1. AI calls `searchCards` once with broad filters → ~10 results
-2. AI calls `suggestCards` with top picks → persisted to session
+2. AI calls `suggestCards` with top picks → checked against the library and the deck, kept ones persisted to session
 3. AI writes 1-2 sentence summary
 
 Expected: ~5k input tokens, ~600 output tokens per interaction.

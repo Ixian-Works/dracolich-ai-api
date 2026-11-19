@@ -134,7 +134,11 @@ The session object includes structured card suggestions (populated by the AI via
   "deck_list": [...],
   "card_suggestions": [
     {
+      "card_id": "6650cc8a1f3e2a5d9b0c1234",
       "card_name": "Deepglow Skate",
+      "mana_cost": "{4}{U}",
+      "type_line": "Creature — Fish",
+      "image_uri": "https://cards.scryfall.io/normal/front/...",
       "category": "Creature",
       "reason": "Doubles all counters on any permanent when it enters",
       "synergy_score": 0.95
@@ -154,7 +158,7 @@ The AI agent has access to three tools:
 | Tool | Purpose |
 |------|---------|
 | `CardSearchTool` | Searches the MTG Library API with filters. Returns compact results (name, cost, type, oracle text). Max 10 results per call. |
-| `SuggestCardsTool` | Formally recommends cards with structured data. Persisted to the session's `card_suggestions` field for programmatic consumption. |
+| `SuggestCardsTool` | Formally recommends cards with structured data. Every suggested name is checked against the library and the deck first: names that aren't cards; cards the deck already holds as many of as it may (one with a commander, four otherwise, and never a basic land); cards not legal in the format; and, once the deck has a commander or a colour identity, cards outside it (a colourless commander allows only colourless cards) are dropped. The rest are persisted to the session's `card_suggestions`, each with the library's `card_id`, `mana_cost`, `type_line` and `image_uri`. |
 | `ReportIssuesTool` | Reports structured deck problems as `IssueDto` (with `IssueSeverity`) for programmatic consumption by the caller. |
 
 `DeckAnalysisTool` was removed — deck stats are pre-computed by `dracolich-mtg-deck-builder-api` and

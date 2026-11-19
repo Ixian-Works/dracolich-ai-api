@@ -327,6 +327,9 @@ public class AgentServiceImpl implements AgentService {
                 - After searching, call suggest_cards with your picks. Do not list card details in your text.
                 - After calling suggest_cards, write 1-2 sentences summarizing your reasoning.
                 - If search returns no results, suggest cards from your knowledge — do NOT retry with different queries.
+                - Every suggestion is checked against the card library and the deck: a name that isn't a real card,
+                  a card already in the deck, one not legal in the format, or one outside the commander's colours is
+                  dropped. suggest_cards tells you which were kept; describe only those.
                 - Warn about deck weaknesses briefly.
                 - Inform, never block. The user always decides.
 
