@@ -72,6 +72,7 @@ class SuggestCardsToolTest {
         add(card("id-lackey", "Goblin Lackey", "{R}", "Creature — Goblin", Legality.LEGAL, Color.R));
         add(card("id-recruiter", "Goblin Recruiter", "{1}{R}", "Creature — Goblin", Legality.BANNED, Color.R));
         add(card("id-sol", "Sol Ring", "{1}", "Artifact", Legality.LEGAL));
+        add(card("id-mountain", "Mountain", "", "Basic Land — Mountain", Legality.LEGAL));
     }
 
     private void add(CardDto card) {
@@ -155,11 +156,57 @@ class SuggestCardsToolTest {
     @Test
     void outsideCommanderNoColourIdentityCheck() {
         session.setFormat("MODERN");
+        session.setCommanderName(null);
         session.setColorIdentity(Set.of());
         catalogue.get("counterspell").getLegalities().put(Format.MODERN, Legality.LEGAL);
 
         tool.suggestCards(SESSION, "[" + suggestion("Counterspell") + "]");
 
         assertThat(saved()).extracting(CardSuggestionDto::getCardName).containsExactly("Counterspell");
+    }
+
+    @Test
+    void aCommanderDeckWithNoCommanderYetKeepsColouredCards() {
+        session.setCommanderName(null);
+        session.setColorIdentity(Set.of());
+
+        tool.suggestCards(SESSION, "[" + suggestion("Counterspell") + "]");
+
+        assertThat(saved()).extracting(CardSuggestionDto::getCardName).containsExactly("Counterspell");
+    }
+
+    @Test
+    void aColourlessCommanderAllowsOnlyColourlessCards() {
+        session.setCommanderName("Karn, Silver Golem");
+        session.setColorIdentity(Set.of());
+
+        tool.suggestCards(SESSION, "[" + suggestion("Impact Tremors") + "," + suggestion("Sol Ring") + "]");
+
+        assertThat(saved()).extracting(CardSuggestionDto::getCardName).containsExactly("Sol Ring");
+    }
+
+    @Test
+    void aBasicLandAlreadyInTheDeckIsNeverDropped() {
+        session.getDeckList().add(DeckCardEntity.builder().name("Mountain").quantity(30).build());
+
+        tool.suggestCards(SESSION, "[" + suggestion("Mountain") + "]");
+
+        assertThat(saved()).extracting(CardSuggestionDto::getCardName).containsExactly("Mountain");
+    }
+
+    @Test
+    void withoutACommanderACardIsDroppedOnlyAtFourCopies() {
+        session.setFormat("MODERN");
+        session.setCommanderName(null);
+        session.setColorIdentity(Set.of());
+        catalogue.get("impact tremors").getLegalities().put(Format.MODERN, Legality.LEGAL);
+        catalogue.get("sol ring").getLegalities().put(Format.MODERN, Legality.LEGAL);
+        session.getDeckList().add(DeckCardEntity.builder().name("Impact Tremors").quantity(2).build());
+        session.getDeckList().add(DeckCardEntity.builder().name("Sol Ring").quantity(4).build());
+
+        String answer = tool.suggestCards(SESSION, "[" + suggestion("Impact Tremors") + "," + suggestion("Sol Ring") + "]");
+
+        assertThat(saved()).extracting(CardSuggestionDto::getCardName).containsExactly("Impact Tremors");
+        assertThat(answer).contains("Already in the deck, dropped: Sol Ring.");
     }
 }

@@ -158,7 +158,7 @@ The AI agent has access to three tools:
 | Tool | Purpose |
 |------|---------|
 | `CardSearchTool` | Searches the MTG Library API with filters. Returns compact results (name, cost, type, oracle text). Max 10 results per call. |
-| `SuggestCardsTool` | Formally recommends cards with structured data. Every suggested name is checked against the library and the deck first: names that aren't cards, cards already in the deck, cards not legal in the format, and cards outside a Commander deck's colour identity are dropped. The rest are persisted to the session's `card_suggestions`, each with the library's `card_id`, `mana_cost`, `type_line` and `image_uri`. |
+| `SuggestCardsTool` | Formally recommends cards with structured data. Every suggested name is checked against the library and the deck first: names that aren't cards; cards the deck already holds as many of as it may (one with a commander, four otherwise, and never a basic land); cards not legal in the format; and, once the deck has a commander or a colour identity, cards outside it (a colourless commander allows only colourless cards) are dropped. The rest are persisted to the session's `card_suggestions`, each with the library's `card_id`, `mana_cost`, `type_line` and `image_uri`. |
 | `ReportIssuesTool` | Reports structured deck problems as `IssueDto` (with `IssueSeverity`) for programmatic consumption by the caller. |
 
 `DeckAnalysisTool` was removed — deck stats are pre-computed by `dracolich-mtg-deck-builder-api` and

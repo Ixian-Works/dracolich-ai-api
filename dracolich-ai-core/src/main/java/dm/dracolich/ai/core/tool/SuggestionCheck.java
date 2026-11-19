@@ -13,14 +13,15 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Which of the model's suggested cards may be returned (Ixian-Works/dracolich-ai-api#14). A suggestion
- * is kept only when the library has the card, and it isn't in the deck already, is legal in the
- * deck's format, and, when the deck has a colour identity (Commander), is within it. A kept
+ * is kept only when the library has the card; it isn't already in the deck as far as the deck allows
+ * (a basic land never counts, a deck with a commander holds one of each card, any other deck four);
+ * it is legal in the deck's format; and, when the deck has a commander or a colour identity, it is
+ * within that identity (a colourless commander allows only colourless cards). A kept
  * suggestion carries the library's id, name, mana cost, type line and image, so the app can draw it
  * and add it without another lookup.
  */
@@ -45,11 +46,14 @@ public final class SuggestionCheck {
      */
     public static Result check(List<SuggestCardsTool.CardSuggestion> suggestions, List<CardDto> found,
                                SessionEntity session) {
-        Set<String> inDeck = deckNames(session);
+        Map<String, Integer> inDeck = deckCopies(session);
         Format format = format(session.getFormat());
         Set<String> identity = session.getColorIdentity() == null ? Set.of()
                 : session.getColorIdentity().stream().map(c -> c.toUpperCase(Locale.ROOT)).collect(Collectors.toSet());
-        boolean checkColour = format == Format.COMMANDER || !identity.isEmpty();
+        boolean hasCommander = notBlank(session.getCommanderName()) || notBlank(session.getCommanderId());
+        // A Commander deck with no commander yet has no identity to check against.
+        boolean checkColour = hasCommander || !identity.isEmpty();
+        int copiesAllowed = hasCommander ? 1 : 4;
 
         List<CardSuggestionDto> kept = new ArrayList<>();
         Map<Dropped, List<String>> dropped = new EnumMap<>(Dropped.class);
@@ -58,7 +62,7 @@ public final class SuggestionCheck {
             CardDto card = i < found.size() ? found.get(i) : null;
             String asked = suggestion.cardName() == null ? "" : suggestion.cardName().trim();
             Dropped reason = card == null ? Dropped.NOT_A_CARD
-                    : inDeck.contains(lower(card.getName())) ? Dropped.IN_DECK
+                    : !isBasicLand(card) && inDeck.getOrDefault(lower(card.getName()), 0) >= copiesAllowed ? Dropped.IN_DECK
                     : !legal(card, format) ? Dropped.NOT_LEGAL
                     : checkColour && !withinIdentity(card, identity) ? Dropped.OFF_COLOUR
                     : null;
@@ -82,10 +86,27 @@ public final class SuggestionCheck {
         return new Result(kept, dropped);
     }
 
-    private static Set<String> deckNames(SessionEntity session) {
-        if (session.getDeckList() == null) return Set.of();
-        return session.getDeckList().stream().map(DeckCardEntity::getName).filter(Objects::nonNull)
-                .map(SuggestionCheck::lower).collect(Collectors.toSet());
+    /** Copies of each card in the deck, by lower-cased name. */
+    private static Map<String, Integer> deckCopies(SessionEntity session) {
+        Map<String, Integer> copies = new java.util.HashMap<>();
+        if (session.getDeckList() == null) return copies;
+        for (DeckCardEntity entry : session.getDeckList()) {
+            if (entry.getName() == null) continue;
+            copies.merge(lower(entry.getName()), entry.getQuantity() != null ? entry.getQuantity() : 1, Integer::sum);
+        }
+        return copies;
+    }
+
+    /** A basic land, of which a deck may hold any number. */
+    private static boolean isBasicLand(CardDto card) {
+        String type = card.getDefaultFace() != null ? card.getDefaultFace().getFullType() : null;
+        if (type == null) return false;
+        String left = type.split("—", 2)[0];
+        return left.contains("Basic") && left.contains("Land");
+    }
+
+    private static boolean notBlank(String text) {
+        return text != null && !text.isBlank();
     }
 
     private static Format format(String format) {
